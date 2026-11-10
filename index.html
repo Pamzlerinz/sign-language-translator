@@ -1,0 +1,1421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI-Powered Sign Language Translator · Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --fs:17px;
+    --bg:#f4f2ee; --panel:#ffffff; --ink:#1b1d21; --muted:#5d636d; --line:#e1ddd5;
+    --accent:#2f4bd8; --accent-ink:#fff;
+    --signer:#0d6e66; --signer-bg:#e3f3f0; --speaker:#9a4a0b; --speaker-bg:#fbefe3;
+    --warn:#a8370b; --warn-bg:#fff1e8; --ok:#1d7a3a; --stage:#101215;
+    --radius:14px; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 18px rgba(0,0,0,.05);
+  }
+  html.hc{
+    --bg:#000; --panel:#000; --ink:#fff; --muted:#e6e6e6; --line:#fff;
+    --accent:#ffe600; --accent-ink:#000;
+    --signer:#7df9ff; --signer-bg:#000; --speaker:#ffe600; --speaker-bg:#000;
+    --warn:#ff9d5c; --warn-bg:#000; --ok:#7dff8a; --shadow:none;
+  }
+  html.hc .bubble, html.hc .card, html.hc button, html.hc input, html.hc select{border-width:2px!important}
+  *{box-sizing:border-box}
+  html{font-size:var(--fs)}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.45}
+  button,input,select{font:inherit;color:inherit}
+  button{cursor:pointer;border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:.45rem .8rem}
+  button:hover{border-color:var(--accent)}
+  button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+  button.ghost{background:transparent}
+  button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  input[type=text],select{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:.45rem .7rem}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+  header{display:flex;align-items:center;gap:1rem;padding:.8rem 1.2rem;border-bottom:1px solid var(--line);background:var(--panel)}
+  .brand{display:flex;align-items:center;gap:.6rem;font-weight:700;font-size:1.05rem}
+  .brand .logo{width:2rem;height:2rem;border-radius:9px;background:var(--signer);display:grid;place-items:center;color:#fff;font-size:1.1rem}
+  html.hc .brand .logo{color:#000}
+  .brand small{display:block;font-weight:400;color:var(--muted);font-size:.78rem}
+  header .spacer{flex:1}
+  .privacy{font-size:.8rem;color:var(--ok);display:flex;align-items:center;gap:.35rem}
+
+  main{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:1rem;padding:1rem 1.2rem;max-width:1500px;margin:0 auto}
+  @media (max-width:980px){main{grid-template-columns:minmax(0,1fr)}}
+  @media (max-width:640px){
+    header{flex-wrap:wrap;padding:.6rem .8rem;gap:.5rem}
+    header .spacer{display:none}
+    .brand{flex:1 1 100%}
+    .privacy{flex:1}
+    main{padding:.6rem}
+    main .stage{aspect-ratio:auto;min-height:20rem}
+    main .stage .start p{font-size:.8rem}
+    .phrase-actions .hint{flex-basis:100%}
+  }
+  .stage.idle .caption{display:none}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+
+  /* Stage */
+  .stage{position:relative;aspect-ratio:16/9;background:var(--stage);border-radius:var(--radius);overflow:hidden}
+  .stage video,.stage canvas.media{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+  .stage.mirror .media{transform:scaleX(-1)}
+  .chips{position:absolute;top:.6rem;left:.6rem;display:flex;gap:.35rem;flex-wrap:wrap;z-index:3}
+  .chip{font-size:.72rem;padding:.2rem .5rem;border-radius:99px;background:rgba(0,0,0,.55);color:#fff;border:1px solid rgba(255,255,255,.18)}
+  .chip.on{background:rgba(13,110,102,.85)}
+  .chip.q{background:rgba(47,75,216,.9)}
+  .stage .warn{position:absolute;left:50%;top:.6rem;transform:translateX(-50%);z-index:4;background:#ffd8bf;color:#5a1d00;border-radius:10px;padding:.35rem .7rem;font-size:.85rem;font-weight:700;display:none;max-width:80%;text-align:center}
+  .stage .warn.show{display:block}
+  .stage .unclear{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);z-index:4;background:rgba(0,0,0,.72);color:#fff;border-radius:12px;padding:.6rem 1rem;font-weight:700;opacity:0;transition:opacity .25s;pointer-events:none}
+  .stage .unclear.show{opacity:1}
+  .stage .countdown{position:absolute;inset:0;display:none;place-items:center;font-size:5rem;font-weight:700;color:#fff;background:rgba(0,0,0,.35);z-index:5}
+  .stage .countdown.show{display:grid}
+  .caption{position:absolute;left:0;right:0;bottom:0;z-index:3;padding:.6rem 1rem;background:linear-gradient(transparent,rgba(0,0,0,.8));color:#fff;font-size:1.25rem;font-weight:700;min-height:2.5rem;text-shadow:0 1px 2px #000}
+  .caption .who{font-size:.72rem;font-weight:400;opacity:.8;display:block}
+  .caption .interim{opacity:.7;font-style:italic}
+  .start{position:absolute;inset:0;display:grid;place-items:center;z-index:6;color:#fff;text-align:center;padding:1rem}
+  .start .inner{max-width:30rem}
+  .start h2{margin:.2rem 0 .4rem;font-size:1.3rem}
+  .start p{color:#c9ccd2;font-size:.9rem;margin:.3rem 0 1rem}
+  .start .row{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap}
+  .start button:not(.primary){background:transparent;color:#fff;border-color:rgba(255,255,255,.55)}
+  .start .err{color:#ffb38a;font-size:.85rem;margin-top:.8rem}
+  .debug{position:absolute;right:.6rem;top:.6rem;z-index:4;background:rgba(0,0,0,.72);color:#9ff5c1;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;padding:.5rem .7rem;border-radius:8px;display:none;white-space:pre}
+  .debug.show{display:block}
+
+  .controls{display:flex;gap:.45rem;flex-wrap:wrap;align-items:center;padding:.7rem 0 0}
+  .controls label{font-size:.85rem;color:var(--muted);display:flex;align-items:center;gap:.35rem}
+
+  .live{padding:.8rem 1rem;margin-top:.8rem}
+  .live-top{display:flex;align-items:center;gap:1rem}
+  .cur{min-width:6.5rem}
+  .cur .lbl{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .cur .val{font-size:1.9rem;font-weight:700;line-height:1.1;color:var(--signer)}
+  .meter{flex:1}
+  .meter .bar{height:.55rem;border-radius:99px;background:var(--line);overflow:hidden;position:relative}
+  .meter .fill{height:100%;width:0;background:var(--signer);transition:width .1s}
+  .meter .thr{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink)}
+  .meter .txt{font-size:.78rem;color:var(--muted);margin-top:.25rem;display:flex;justify-content:space-between}
+  .phrase{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin-top:.7rem;min-height:2.4rem;padding:.4rem .5rem;border:1px dashed var(--line);border-radius:10px}
+  .phrase .ph{color:var(--muted);font-size:.85rem}
+  .tok{background:var(--signer-bg);color:var(--signer);border:1px solid var(--signer);border-radius:8px;padding:.1rem .45rem;font-weight:700;font-size:.9rem}
+  .tok.letter{border-style:dashed}
+  .phrase-actions{display:flex;gap:.4rem;margin-top:.55rem;align-items:center;flex-wrap:wrap}
+  .phrase-actions .hint{font-size:.78rem;color:var(--muted);flex:1}
+
+  .tabs{margin-top:.8rem}
+  .tablist{display:flex;gap:.25rem;padding:.4rem .4rem 0}
+  .tablist button{border:none;border-bottom:3px solid transparent;border-radius:0;background:transparent;padding:.5rem .8rem;color:var(--muted)}
+  .tablist button[aria-selected="true"]{border-bottom-color:var(--accent);color:var(--ink);font-weight:700}
+  .tabpanel{padding:.9rem 1rem 1rem;border-top:1px solid var(--line)}
+  .tabpanel[hidden]{display:none}
+  .row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}
+  .muted{color:var(--muted);font-size:.85rem}
+  .taught{list-style:none;padding:0;margin:.7rem 0 0;display:flex;flex-wrap:wrap;gap:.4rem}
+  .taught li{border:1px solid var(--line);border-radius:9px;padding:.2rem .3rem .2rem .55rem;font-size:.85rem;display:flex;align-items:center;gap:.35rem}
+  .taught li button{padding:.05rem .4rem;font-size:.75rem}
+  .sub{font-size:.95rem;margin:.2rem 0 .4rem}
+  .alts{font-size:.75rem;color:var(--muted);min-height:1.1em;margin-top:.15rem}
+  .letter-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(2.6rem,1fr));gap:.3rem}
+  .letter-grid button{padding:.35rem 0;font-weight:700;position:relative}
+  .letter-grid button.done{background:var(--signer-bg);border-color:var(--signer);color:var(--signer)}
+  .letter-grid button.done::after{content:"✓";position:absolute;top:0;right:.2rem;font-size:.6rem}
+  .letter-grid button.bad{border-color:var(--warn);box-shadow:inset 0 0 0 1px var(--warn)}
+  .test-result{font-size:.85rem;margin-top:.6rem}
+  .test-result table{border-collapse:collapse;margin-top:.3rem}
+  .test-result td,.test-result th{padding:.15rem .5rem;border-bottom:1px solid var(--line);text-align:left}
+  .prompt{position:absolute;left:50%;bottom:3.6rem;transform:translateX(-50%);z-index:5;background:rgba(0,0,0,.78);color:#fff;border-radius:14px;padding:.5rem 1.1rem;text-align:center;display:none}
+  .prompt.show{display:block}
+  .prompt .big{font-size:3rem;font-weight:700;line-height:1}
+  .prompt .hint{font-size:.85rem;opacity:.85}
+  .prompt .bar{height:4px;background:rgba(255,255,255,.25);border-radius:4px;margin-top:.35rem;overflow:hidden}
+  .prompt .bar div{height:100%;width:0;background:#3ff0c8;transition:width .1s linear}
+  .gloss-btns{display:flex;flex-wrap:wrap;gap:.35rem;margin:.5rem 0}
+  .gloss-btns button{font-size:.82rem;padding:.3rem .55rem;font-weight:700;color:var(--signer)}
+  .settings-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(14rem,1fr));gap:.8rem 1.2rem}
+  .settings-grid label{display:flex;flex-direction:column;gap:.25rem;font-size:.85rem;color:var(--muted)}
+  .settings-grid label.inline{flex-direction:row;align-items:center;gap:.5rem;color:var(--ink)}
+  .settings-grid output{color:var(--ink);font-weight:700}
+
+  /* Conversation */
+  .convo{display:flex;flex-direction:column;min-height:36rem;max-height:calc(100vh - 6rem);position:sticky;top:1rem}
+  @media (max-width:980px){.convo{position:static;max-height:none;min-height:28rem}}
+  .convo-head{display:flex;align-items:center;gap:.6rem;padding:.75rem 1rem;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .convo-head h2{font-size:1rem;margin:0;flex:1}
+  .legend{display:flex;gap:.7rem;font-size:.78rem;color:var(--muted)}
+  .legend i{display:inline-block;width:.7rem;height:.7rem;border-radius:3px;margin-right:.25rem;vertical-align:-1px}
+  .thread{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.7rem}
+  .empty{margin:auto;text-align:center;color:var(--muted);font-size:.9rem;max-width:20rem}
+  .msg{display:flex;flex-direction:column;max-width:85%}
+  .msg.signer{align-self:flex-start}
+  .msg.speaker{align-self:flex-end;align-items:flex-end}
+  .meta{font-size:.72rem;color:var(--muted);margin:0 .3rem .15rem}
+  .bubble{border-radius:14px;padding:.55rem .8rem;border:1px solid transparent;display:flex;gap:.5rem;align-items:flex-start}
+  .msg.signer .bubble{background:var(--signer-bg);border-color:var(--signer);border-left-width:4px}
+  .msg.speaker .bubble{background:var(--speaker-bg);border-color:var(--speaker);border-right-width:4px}
+  .bubble .text{font-size:1.1rem}
+  .bubble .gloss{font-size:.75rem;color:var(--muted);margin-top:.2rem;letter-spacing:.02em}
+  .bubble button.say{border:none;background:transparent;padding:.1rem .2rem;font-size:1rem;line-height:1}
+  .composer{border-top:1px solid var(--line);padding:.7rem;display:flex;gap:.45rem;align-items:center}
+  .composer input{flex:1;min-width:0}
+  .mic{width:2.7rem;height:2.7rem;border-radius:50%;padding:0;display:grid;place-items:center;font-size:1.1rem}
+  .mic[aria-pressed="true"]{background:var(--speaker);border-color:var(--speaker);color:#fff}
+  .micbar{display:flex;align-items:center;gap:.5rem;padding:0 1rem .6rem;font-size:.75rem;color:var(--muted)}
+  .level{flex:0 0 6rem;height:.4rem;border-radius:99px;background:var(--line);overflow:hidden}
+  .level div{height:100%;width:0;background:var(--speaker)}
+  .interim-line{padding:0 1rem .4rem;font-style:italic;color:var(--muted);min-height:1.2rem;font-size:.9rem}
+
+  /* Modal */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;place-items:center;z-index:50;padding:1rem}
+  .modal.show{display:grid}
+  .modal .box{background:var(--panel);border-radius:var(--radius);max-width:62rem;width:100%;max-height:88vh;overflow:auto;padding:1.2rem 1.4rem;border:1px solid var(--line)}
+  .modal h2{margin:.1rem 0 .3rem}
+  table.req{width:100%;border-collapse:collapse;font-size:.85rem;margin-top:.6rem}
+  table.req th,table.req td{border-bottom:1px solid var(--line);padding:.45rem .4rem;text-align:left;vertical-align:top}
+  table.req th{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .st{display:inline-block;padding:.1rem .45rem;border-radius:99px;font-size:.72rem;font-weight:700;white-space:nowrap}
+  .st.done{background:#dcf3e2;color:#14532d}.st.part{background:#fdf0c8;color:#6b4a00}.st.sim{background:#e6e9fb;color:#25348f}
+  html.hc .st{background:#000!important;color:var(--ink)!important;border:1px solid var(--ink)}
+  .toast{position:fixed;bottom:1.2rem;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:.55rem 1rem;border-radius:10px;font-size:.9rem;opacity:0;transition:opacity .25s;pointer-events:none;z-index:60}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><div class="logo" aria-hidden="true">🤟</div><div>AI-Powered Sign Language Translator<small>Capstone prototype · two-way ASL ⇄ English</small></div></div>
+  <div class="spacer"></div>
+  <span class="privacy" title="Hand, face and pose tracking run on this device (WebAssembly / WebGL). Raw video is never uploaded.">🔒 Video stays on this device</span>
+  <button id="btnDebug" aria-pressed="false" title="Show FPS, latency and memory overlay (R20)">Debug</button>
+  <button id="btnReq">Requirements</button>
+</header>
+
+<main>
+  <!-- LEFT: sign input -->
+  <section aria-label="Sign language input">
+    <div class="stage idle" id="stage">
+      <video id="video" class="media" playsinline muted></video>
+      <canvas id="overlay" class="media"></canvas>
+      <div class="chips" aria-hidden="true">
+        <span class="chip" id="chipHands">Hands 0</span>
+        <span class="chip" id="chipFace">Face –</span>
+        <span class="chip" id="chipPose">Pose –</span>
+        <span class="chip" id="chipLight">Light –</span>
+        <span class="chip q" id="chipQ" hidden>Eyebrows raised → question</span>
+      </div>
+      <div class="warn" id="warn" role="status" aria-live="polite"></div>
+      <div class="unclear" id="unclear" role="status" aria-live="assertive">Sign unclear — please re-sign</div>
+      <div class="countdown" id="countdown"></div>
+      <div class="prompt" id="prompt" role="status" aria-live="assertive"><div class="hint" id="promptStep"></div><div class="big" id="promptLetter"></div><div class="hint" id="promptHint"></div><div class="bar"><div id="promptBar"></div></div></div>
+      <div class="debug" id="debug"></div>
+      <div class="caption" id="caption" aria-live="polite"><span class="who">Latest from speaker</span><span id="capText">—</span></div>
+      <div class="start" id="startCard">
+        <div class="inner">
+          <div style="font-size:2.4rem" aria-hidden="true">🤟</div>
+          <h2>Start signing</h2>
+          <p>Hand, face and upper-body landmarks are tracked in the browser with MediaPipe. Nothing from the camera leaves this device.</p>
+          <div class="row">
+            <button class="primary" id="btnStart">Start camera</button>
+            <label class="sr" for="fileVideo">Use a video file</label>
+            <button id="btnFile">Use a video file</button>
+            <input type="file" id="fileVideo" accept="video/*" hidden>
+            <button id="btnModels" title="Use .task model files saved on this computer (for blocked or offline networks)">Load model files</button>
+            <input type="file" id="fileModels" accept=".task" multiple hidden>
+          </div>
+          <div class="err" id="startErr" role="alert"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="btnStop" disabled>Stop</button>
+      <button id="btnFlip" disabled title="Switch front / rear camera (R4)">↺ Flip camera</button>
+      <label>Resolution
+        <select id="selRes">
+          <option value="auto">Auto (adapts)</option>
+          <option value="low">640×360</option>
+          <option value="sd">960×540</option>
+          <option value="hd">1280×720</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="chkFaceBody"> Face &amp; body</label>
+      <label><input type="checkbox" id="chkAlphabet"> Built-in alphabet</label>
+    </div>
+
+    <div class="card live" aria-label="Current recognition">
+      <div class="live-top">
+        <div class="cur"><div class="lbl">Current sign</div><div class="val" id="curSign">—</div></div>
+        <div class="meter">
+          <div class="bar"><div class="fill" id="confFill"></div><div class="thr" id="confThr"></div></div>
+          <div class="txt"><span id="confTxt">Confidence –</span><span id="thrTxt">Threshold 70%</span></div>
+          <div class="alts" id="alts" aria-live="off"></div>
+        </div>
+      </div>
+      <div class="phrase" id="phrase" aria-label="Signs in the current phrase"><span class="ph">Signs appear here. Lower your hands or pause to send the phrase.</span></div>
+      <div class="phrase-actions">
+        <span class="hint" id="pauseHint">Auto-send after 1.0 s with hands down</span>
+        <button id="btnUndo">Undo sign</button>
+        <button id="btnClearPhrase">Clear</button>
+        <button class="primary" id="btnSendPhrase">Send now</button>
+      </div>
+    </div>
+
+    <div class="card tabs">
+      <div class="tablist" role="tablist">
+        <button role="tab" aria-selected="true" aria-controls="tabTeach" id="t-teach">Teach a sign</button>
+        <button role="tab" aria-selected="false" aria-controls="tabSim" id="t-sim">Demo signs</button>
+        <button role="tab" aria-selected="false" aria-controls="tabSet" id="t-set">Settings</button>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="tabTeach" aria-labelledby="t-teach">
+        <h3 class="sub">Alphabet calibration</h3>
+        <p class="muted" style="margin-top:0">Look-alike letters (A E M N S T) differ only by the thumb. Record each letter once with your own hand, and calibrated letters replace the built-in rules. Tip: turn your hand slightly so the camera can see your thumb.</p>
+        <div class="letter-grid" id="letterGrid" aria-label="Letters — click one to record or re-record it"></div>
+        <div class="row" style="margin-top:.6rem">
+          <button class="primary" id="btnCalib">Calibrate all letters</button>
+          <button id="btnCalibFist">Just A E M N S T</button>
+          <button id="btnTest">Test accuracy</button>
+          <button id="btnStopRun" hidden>■ Stop</button>
+        </div>
+        <div class="test-result" id="testResult" aria-live="polite"></div>
+        <h3 class="sub">Teach a word sign</h3>
+        <p class="muted" style="margin-top:0">Record your own signs and the app learns them in the browser (nearest-neighbour on normalized landmarks). This stands in for the WLASL classifier (R8) until the trained model is ready.</p>
+        <div class="row">
+          <input type="text" id="teachLabel" placeholder="Gloss, e.g. HELP" aria-label="Gloss label for the sign" style="width:11rem">
+          <label class="muted"><input type="radio" name="teachType" value="static" checked> Held handshape</label>
+          <label class="muted"><input type="radio" name="teachType" value="motion"> Moving sign</label>
+          <button class="primary" id="btnRecord">● Record</button>
+        </div>
+        <p class="muted" id="teachStatus">Camera must be running. Record each sign 3 or more times for best results.</p>
+        <ul class="taught" id="taughtList"></ul>
+        <div class="row" style="margin-top:.6rem">
+          <button id="btnExport">Export signs</button>
+          <button id="btnImport">Import signs</button>
+          <input type="file" id="fileImport" accept="application/json" hidden>
+          <button id="btnClearSigns">Delete all</button>
+        </div>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="tabSim" aria-labelledby="t-sim" hidden>
+        <p class="muted" style="margin-top:0">Feed sign tokens straight into the pipeline to demo segmentation → translation → speech without a camera. Try <b>ME NEED HELP</b>, <b>BATHROOM WHERE</b>, or <b>YOU NAME WHAT</b>.</p>
+        <div class="gloss-btns" id="glossBtns"></div>
+        <div class="row">
+          <input type="text" id="spellInput" placeholder="Fingerspell a word" aria-label="Word to fingerspell" style="width:12rem">
+          <button id="btnSpell">Fingerspell</button>
+          <label class="muted"><input type="checkbox" id="chkSimQ"> Raised eyebrows (question)</label>
+          <button class="primary" id="btnSimEnd">Hands down (end phrase)</button>
+        </div>
+        <div class="row" style="margin-top:.6rem">
+          <button id="btnScript">▶ Play sample conversation</button>
+        </div>
+      </div>
+
+      <div class="tabpanel" role="tabpanel" id="tabSet" aria-labelledby="t-set" hidden>
+        <div class="settings-grid">
+          <label>Text size <output id="fsOut"></output><input type="range" id="rngFs" min="14" max="28" step="1"></label>
+          <label class="inline"><input type="checkbox" id="chkHC"> High-contrast mode</label>
+          <label class="inline"><input type="checkbox" id="chkAutoSpeak"> Speak signed messages aloud</label>
+          <label>Confidence threshold <output id="thrOut"></output><input type="range" id="rngThr" min="0.5" max="0.95" step="0.01"></label>
+          <label>Pause before sending <output id="pauseOut"></output><input type="range" id="rngPause" min="400" max="3000" step="100"></label>
+          <label>Hold time for a sign <output id="holdOut"></output><input type="range" id="rngHold" min="3" max="20" step="1"></label>
+          <label>Matching tolerance <output id="sensOut"></output><input type="range" id="rngSens" min="0.5" max="2" step="0.05"></label>
+          <label>Voice<select id="selVoice"><option value="">System default</option></select></label>
+          <label>Speech rate <output id="rateOut"></output><input type="range" id="rngRate" min="0.6" max="1.6" step="0.05"></label>
+          <label>Speech recognition language
+            <select id="selLang"><option>en-US</option><option>en-GB</option><option>en-CA</option><option>en-AU</option><option>es-US</option><option>fr-CA</option></select></label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT: conversation -->
+  <section class="card convo" aria-label="Conversation">
+    <div class="convo-head">
+      <h2>Conversation</h2>
+      <div class="legend"><span><i style="background:var(--signer)"></i>Signed</span><span><i style="background:var(--speaker)"></i>Spoken / typed</span></div>
+      <button class="ghost" id="btnClearThread" title="Clear conversation">Clear</button>
+    </div>
+    <div class="thread" id="thread" role="log" aria-live="polite" aria-relevant="additions">
+      <div class="empty" id="empty">Signed messages appear on the left, spoken or typed replies on the right.</div>
+    </div>
+    <div class="interim-line" id="interim" aria-live="polite"></div>
+    <form class="composer" id="composer" autocomplete="off">
+      <button type="button" class="mic" id="btnMic" aria-pressed="false" title="Speak (speech-to-text)">🎤</button>
+      <label class="sr" for="txtMsg">Type a message</label>
+      <input type="text" id="txtMsg" placeholder="Speak, or type a reply…">
+      <button type="submit" class="primary">Send</button>
+    </form>
+    <div class="micbar"><span id="micStatus">Mic off</span><div class="level" aria-hidden="true"><div id="micLevel"></div></div><span id="nsStatus"></span></div>
+  </section>
+</main>
+
+<div class="modal" id="reqModal" role="dialog" aria-modal="true" aria-labelledby="reqTitle">
+  <div class="box">
+    <div class="row" style="justify-content:space-between"><h2 id="reqTitle">Requirement coverage</h2><button id="btnReqClose">Close</button></div>
+    <p class="muted">How this prototype maps to the team's traceability matrix (R1–R20).
+      <span class="st done">Working</span> runs for real in this build ·
+      <span class="st part">Partial</span> working stand-in for a component still to be built ·
+      <span class="st sim">Planned</span> not in this build.</p>
+    <table class="req"><thead><tr><th>ID</th><th>Requirement</th><th>Owner</th><th>Status</th><th>In this prototype</th></tr></thead><tbody id="reqBody"></tbody></table>
+  </div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script type="module">
+/* =====================================================================
+   AI-Powered Sign Language Translator — prototype
+   F1 camera + MediaPipe landmarks · F2 normalization + segmentation
+   F3 recognition (heuristic alphabet + trainable kNN) + gloss→English
+   F4 speech-to-text + typed fallback · F5 thread, TTS, accessibility
+   F6 client-side inference + telemetry
+   ===================================================================== */
+const $ = s => document.querySelector(s);
+const MP_VER = '1.2.2';
+const MP_URL = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VER}`;
+const MODELS = {
+  hand: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+  face: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+  pose: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+};
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
+};
+const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+const sigmoid = x => 1 / (1 + Math.exp(-x));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+const settings = Object.assign({
+  fontSize:17, contrast:false, threshold:0.70, pauseMs:1000, holdFrames:8, sensitivity:1.0,
+  autoSpeak:true, alphabet:true, faceBody:true, debug:false, rate:1, voice:'', lang:'en-US', res:'auto'
+}, store.get('slt.settings', {}));
+const saveSettings = () => store.set('slt.settings', settings);
+
+let toastTimer;
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.classList.remove('show'), 2600); }
+
+/* ---------------- F1: MediaPipe + camera ---------------- */
+let MP = null, vision = null, handLm = null, faceLm = null, poseLm = null, delegate = '–', modelLoadMs = 0;
+// Library mirrors (tried in order) and model files. Models can also be loaded from disk
+// with "Load model files…" when a network blocks storage.googleapis.com.
+const LIB_CDNS = [MP_URL, `https://unpkg.com/@mediapipe/tasks-vision@${MP_VER}`];
+const localModels = {}; // key -> Uint8Array picked from disk
+class LoadError extends Error { constructor(stage, detail, cause){ super(`${stage}: ${detail}`); this.stage = stage; this.detail = detail; this.cause = cause; } }
+const inFrame = (() => { try { return window.self !== window.top; } catch { return true; } })();
+
+async function loadLibrary(){
+  if (vision) return;
+  let last;
+  for (const base of LIB_CDNS){
+    try {
+      const mod = await import(`${base}/vision_bundle.mjs`);
+      // probe the WASM loader too — it is fetched later and is the usual silent failure
+      const probe = await fetch(`${base}/wasm/vision_wasm_internal.js`, { method:'HEAD' });
+      if (!probe.ok) throw new Error('HTTP ' + probe.status);
+      MP = mod; vision = await MP.FilesetResolver.forVisionTasks(`${base}/wasm`);
+      return;
+    } catch(e){ last = e; console.warn('MediaPipe library failed from', base, e); }
+  }
+  throw new LoadError('library', 'cdn.jsdelivr.net / unpkg.com', last);
+}
+async function getModel(key){
+  if (localModels[key]) return localModels[key];
+  try {
+    const r = await fetch(MODELS[key]);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return new Uint8Array(await r.arrayBuffer());
+  } catch(e){ throw new LoadError('model', key, e); }
+}
+async function makeTask(Cls, key, extra){
+  const buf = await getModel(key);
+  const base = { runningMode:'VIDEO', ...extra };
+  try { const t = await Cls.createFromOptions(vision, { baseOptions:{ modelAssetBuffer:buf, delegate:'GPU' }, ...base }); delegate = 'GPU'; return t; }
+  catch(e){ delegate = 'CPU'; return Cls.createFromOptions(vision, { baseOptions:{ modelAssetBuffer:buf, delegate:'CPU' }, ...base }); }
+}
+async function loadModels(){
+  if (handLm) return;
+  const t0 = performance.now();
+  setStartMsg('Loading MediaPipe library…');
+  await loadLibrary();
+  setStartMsg(localModels.hand ? 'Loading hand model from your file…' : 'Downloading hand model (~8 MB the first time, then cached)…');
+  handLm = await makeTask(MP.HandLandmarker, 'hand', { numHands:2, minHandDetectionConfidence:0.5, minHandPresenceConfidence:0.5, minTrackingConfidence:0.5 });
+  modelLoadMs = performance.now() - t0;
+  if (settings.faceBody) loadFaceBody();
+}
+let faceBodyLoading = null;
+function loadFaceBody(){
+  if (faceLm || faceBodyLoading || !vision) return faceBodyLoading;
+  faceBodyLoading = (async () => {
+    try {
+      faceLm = await makeTask(MP.FaceLandmarker, 'face', { numFaces:1, outputFaceBlendshapes:true });
+      poseLm = await makeTask(MP.PoseLandmarker, 'pose', { numPoses:1 });
+    } catch(e){ console.warn('face/pose load failed', e); toast('Face & body models unavailable — hands still work. You can load them with “Load model files”.'); }
+    faceBodyLoading = null;
+  })();
+  return faceBodyLoading;
+}
+function setStartMsg(m){ $('#startErr').style.color = '#c9ccd2'; $('#startErr').textContent = m; }
+function setStartErr(m){ $('#startErr').style.color = ''; $('#startErr').textContent = m; }
+function setStartErrHTML(html){ $('#startErr').style.color = ''; $('#startErr').innerHTML = html; }
+function explainLoadError(e){
+  const msg = String(e?.message || e);
+  if (/Permission|NotAllowed/i.test(msg)) return setStartErr('Camera permission was denied. Allow camera access in the address bar and try again.');
+  if (/NotFound|DevicesNotFound/i.test(msg)) return setStartErr('No camera was found. Connect a camera, or use “Use a video file”.');
+  if (/NotReadable|TrackStart/i.test(msg)) return setStartErr('The camera is busy in another app (Zoom, Teams, another tab). Close it and try again.');
+  const preview = inFrame ? '<br><b>This page seems to be open inside a preview panel</b>, which blocks downloads and the camera. Download the .html file and open it directly in Chrome or Edge.' : '';
+  if (e instanceof LoadError && e.stage === 'library')
+    return setStartErrHTML(`Could not load the MediaPipe library from cdn.jsdelivr.net or unpkg.com. Check your internet connection, or whether your network blocks these sites.${preview}`);
+  if (e instanceof LoadError && e.stage === 'model')
+    return setStartErrHTML(`Could not download the <b>${e.detail}</b> model from storage.googleapis.com (school and work networks sometimes block it).${preview}
+      <br>Fix: download <a href="${MODELS.hand}" style="color:#9fd3ff">hand_landmarker.task</a> (required),
+      <a href="${MODELS.face}" style="color:#9fd3ff">face_landmarker.task</a> and
+      <a href="${MODELS.pose}" style="color:#9fd3ff">pose_landmarker_lite.task</a> on any connection, then click <b>Load model files</b>.`);
+  setStartErrHTML(`${msg.replace(/</g,'&lt;')}${preview}`);
+}
+
+const video = $('#video'), overlay = $('#overlay'), ctx = overlay.getContext('2d');
+let stream = null, running = false, facing = 'user', mirror = true, drawer = null;
+const RES = { low:[640,360], sd:[960,540], hd:[1280,720] };
+const RES_ORDER = ['low','sd','hd'];
+let autoRes = 'sd';
+function pickAutoRes(){
+  const c = navigator.connection;
+  if (c && (c.saveData || (c.downlink && c.downlink < 1.5) || /2g/.test(c.effectiveType||''))) return 'low';
+  return 'sd';
+}
+async function startCamera(){
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error('This browser cannot open the camera from this page. Try Chrome, or serve the file from http://localhost.');
+  stopStream();
+  if (settings.res === 'auto') autoRes = pickAutoRes();
+  const [w,h] = RES[settings.res === 'auto' ? autoRes : settings.res];
+  stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:facing, width:{ideal:w}, height:{ideal:h}, frameRate:{ideal:30} }, audio:false });
+  video.srcObject = stream; video.removeAttribute('src');
+  await video.play();
+  mirror = facing === 'user';
+  $('#stage').classList.toggle('mirror', mirror);
+  $('#btnFlip').disabled = false;
+}
+function stopStream(){ if (stream){ stream.getTracks().forEach(t=>t.stop()); stream = null; } }
+async function applyResolution(key){
+  const track = stream?.getVideoTracks()[0]; if (!track) return;
+  const [w,h] = RES[key];
+  try { await track.applyConstraints({ width:{ideal:w}, height:{ideal:h} }); } catch(e){ console.warn(e); }
+}
+async function begin(source){
+  $('#btnStart').disabled = true; $('#btnFile').disabled = true;
+  try {
+    await loadModels();
+    if (source === 'camera') await startCamera();
+    setStartMsg('');
+    $('#startCard').style.display = 'none'; $('#stage').classList.remove('idle');
+    $('#btnStop').disabled = false;
+    running = true; lastVideoTime = -1;
+    requestAnimationFrame(loop);
+  } catch(e){
+    console.error(e, e?.cause);
+    explainLoadError(e);
+  } finally { $('#btnStart').disabled = false; $('#btnFile').disabled = false; }
+}
+function stopAll(){
+  running = false; stopStream(); video.pause();
+  $('#startCard').style.display = ''; $('#stage').classList.add('idle'); $('#btnStop').disabled = true; $('#btnFlip').disabled = true;
+  ctx.clearRect(0,0,overlay.width,overlay.height);
+}
+
+/* ---------------- F2: preprocessing ---------------- */
+// Normalize 21 landmarks to [-1,1] relative to the hand's bounding box (R5).
+// Uses pixel space so x/y share a scale; left hands are mirrored so one template fits both.
+function normalizeHand(lm, W, H, flip){
+  let minx=Infinity,maxx=-Infinity,miny=Infinity,maxy=-Infinity;
+  const px = lm.map(p => [p.x*W, p.y*H, p.z*W]);
+  for (const [x,y] of px){ if(x<minx)minx=x; if(x>maxx)maxx=x; if(y<miny)miny=y; if(y>maxy)maxy=y; }
+  const cx=(minx+maxx)/2, cy=(miny+maxy)/2, s=Math.max(maxx-minx, maxy-miny)/2 || 1;
+  const pts = px.map(([x,y,z]) => [clamp((flip?-1:1)*(x-cx)/s,-1,1), clamp((y-cy)/s,-1,1), clamp(z/s,-1,1)]);
+  return { pts, vec: pts.flat(), bbox:{minx,maxx,miny,maxy,size:s*2}, wrist:[px[0][0], px[0][1]] };
+}
+const dist = (a,b) => Math.hypot(a[0]-b[0], a[1]-b[1], (a[2]-b[2])*0.5);
+
+/* ---------------- F3a: built-in alphabet (geometry) ----------------
+   Every hand is re-expressed in its own palm frame (x: index→pinky knuckles,
+   y: wrist→middle knuckle, z: palm normal), in palm-length units. That makes the
+   features independent of tilt and distance. The closed-fist letters A E M N S T
+   are separated by where the thumb tip sits along the knuckle line. */
+const v3 = {
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]], dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  scale:(a,s)=>[a[0]*s,a[1]*s,a[2]*s], len:a=>Math.hypot(a[0],a[1],a[2]),
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]],
+};
+v3.norm = a => v3.scale(a, 1/(v3.len(a)||1e-6));
+function palmFrame(P){
+  const up = v3.norm(v3.sub(P[9], P[0]));
+  let ac = v3.sub(P[17], P[5]); ac = v3.norm(v3.sub(ac, v3.scale(up, v3.dot(ac, up))));
+  const n = v3.cross(ac, up);
+  const palm = v3.len(v3.sub(P[9], P[0])) || 1e-6;
+  const C = P.map(p => { const d = v3.sub(p, P[0]); return [v3.dot(d,ac)/palm, v3.dot(d,up)/palm, v3.dot(d,n)/palm]; });
+  return { C, up, n };
+}
+const gauss = (x, m, s) => Math.exp(-(((x-m)/s)**2));
+const mean = a => a.reduce((x,y)=>x+y,0)/a.length;
+function handFeatures(P){
+  const { C, up, n } = palmFrame(P);
+  const d = (i,j) => v3.len(v3.sub(C[i], C[j]));
+  const fingers = [[5,6,8],[9,10,12],[13,14,16],[17,18,20]];
+  const ratio = fingers.map(([m,p,t]) => d(t,0) / (d(p,0)||1e-6));
+  const ext = ratio.map(r => sigmoid((r - 1.18) * 10));
+  const semi = ratio.map(r => gauss(r, 1.02, 0.14));          // half-bent (C, O)
+  const thumb = sigmoid((d(4,9) - 0.78) * 9);
+  // closed-fist thumb features
+  const span = (C[17][0] - C[5][0]) || 1e-6;
+  const tPos = (C[4][0] - C[5][0]) / span;                    // 0 = index knuckle, 1 = pinky knuckle
+  const pipY = mean([C[6][1], C[10][1]]);
+  const tipsY = mean([C[8][1], C[12][1], C[16][1], C[20][1]]);
+  const palmSide = Math.sign(mean([C[8][2],C[12][2],C[16][2],C[20][2]]) - mean([C[5][2],C[9][2],C[13][2],C[17][2]])) || 1;
+  const front = (C[4][2] - mean([C[6][2], C[10][2], C[14][2]])) * palmSide; // >0: thumb lies over the fingers
+  const horiz = sigmoid((Math.abs(up[0]) - 0.8) * 15);       // hand pointing sideways (G, H)
+  return {
+    ext:[thumb, ...ext], semi, tPos, front, horiz,
+    thumbH: C[4][1] - pipY, thumbOverTips: C[4][1] - tipsY,
+    together: sigmoid((0.42 - d(8,12)) * 12),
+    crossed: sigmoid((C[8][0] - C[12][0]) * 10),
+    touchMid: sigmoid((0.5 - d(4,12)) * 10),
+    touchIdx: sigmoid((0.38 - d(4,8)) * 10),
+    gapIdx: d(4,8),
+    hook: sigmoid((C[6][1] - C[8][1]) * 8) * sigmoid((C[8][1] - C[5][1] - 0.3) * 10), // tip bent down but still well above the knuckle
+  };
+}
+const FIST = [0,0,0,0];
+// pat: [thumb, index, middle, ring, pinky]; null = don't care
+const ALPHA = [
+  { label:'A', pat:[null,...FIST], extra:f=> gauss(f.tPos,-0.25,0.22) * gauss(f.thumbH,0,0.4) },
+  { label:'T', pat:[null,...FIST], extra:f=> gauss(f.tPos,0.12,0.12) * gauss(f.thumbH,0.05,0.35) },
+  { label:'S', pat:[null,...FIST], extra:f=> gauss(f.tPos,0.45,0.2) * sigmoid(f.front*8) * sigmoid(f.thumbOverTips*8) },
+  { label:'N', pat:[null,...FIST], extra:f=> gauss(f.tPos,0.42,0.13) * sigmoid(-f.front*8) },
+  { label:'M', pat:[null,...FIST], extra:f=> gauss(f.tPos,0.72,0.14) * sigmoid(-f.front*8) },
+  { label:'E', pat:[null,...FIST], extra:f=> gauss(f.tPos,0.4,0.3) * sigmoid(-f.thumbOverTips*8) },
+  { label:'B', pat:[0,1,1,1,1], extra:f=> f.together },
+  { label:'C', pat:[null,null,null,null,null], extra:f=> mean(f.semi) * gauss(f.gapIdx,0.8,0.3) },
+  { label:'O', pat:[null,null,null,null,null], extra:f=> mean(f.semi) * f.touchIdx },
+  { label:'D', pat:[null,1,0,0,0], extra:f=> f.touchMid * (1-f.horiz) },
+  { label:'F', pat:[null,0,1,1,1], extra:f=> f.touchIdx },
+  { label:'G', pat:[1,1,0,0,0], extra:f=> f.horiz },
+  { label:'H', pat:[null,1,1,0,0], extra:f=> f.horiz * f.together },
+  { label:'I', pat:[0,0,0,0,1] },
+  { label:'L', pat:[1,1,0,0,0], extra:f=> 1-f.horiz },
+  { label:'R', pat:[0,1,1,0,0], extra:f=> f.crossed * (1-f.horiz) },
+  { label:'U', pat:[0,1,1,0,0], extra:f=> f.together * (1-f.crossed) * (1-f.horiz) },
+  { label:'V', pat:[0,1,1,0,0], extra:f=> (1-f.together) * (1-f.crossed) },
+  { label:'W', pat:[0,1,1,1,0] },
+  { label:'X', pat:[null,null,0,0,0], extra:f=> f.hook },
+  { label:'Y', pat:[1,0,0,0,1] },
+  { label:'I-LOVE-YOU', type:'word', pat:[1,1,0,0,1] },
+  { label:null, type:'none', pat:[1,1,1,1,1] }, // open "5" hand = resting / transition, never emitted
+];
+const BUILTIN_LETTERS = ALPHA.filter(t => t.label && t.label.length === 1).map(t => t.label);
+// Returns the best guess plus ranked alternatives. A near-tie lowers confidence
+// (best − ½·runner-up), so look-alikes come out "unclear" instead of wrong.
+function classifyAlphabet(P){
+  const f = handFeatures(P);
+  const scored = ALPHA.map(t => {
+    let logsum = 0, n = 0, worst = 1;
+    t.pat.forEach((b,i) => { if (b===null) return; const v = b ? f.ext[i] : 1-f.ext[i]; logsum += Math.log(Math.max(v,1e-4)); n++; worst = Math.min(worst, v); });
+    // geometric mean × √(worst finger): one clearly wrong finger now sinks the match
+    let c = n ? Math.exp(logsum/n) * Math.sqrt(worst) : 1;
+    if (t.extra) c *= t.extra(f);
+    return { label:t.label, type:t.type || 'letter', raw:c };
+  }).sort((a,b) => b.raw - a.raw);
+  const [b1, b2] = scored;
+  const conf = clamp(b1.raw - 0.5*(b2?.raw||0), 0, 1);
+  return { label:b1.label, type:b1.type, conf, src:'built-in', alts: scored.slice(1,3).filter(x=>x.label).map(x=>({label:x.label, conf:x.raw})) };
+}
+// Feature vector for calibrated letters: palm-frame coordinates (thumb and fingertips
+// weighted up) + which way the hand points and faces, so G/H/P/Q differ from L/U.
+const LETTER_W = [1,1,2,2,2.5, 1,1,1,1.5, 1,1,1,1.5, 1,1,1,1.5, 1,1,1,1.5];
+function letterVec(P){
+  const { C, up, n } = palmFrame(P);
+  const out = [];
+  C.forEach((p,i) => out.push(p[0]*LETTER_W[i], p[1]*LETTER_W[i], p[2]*LETTER_W[i]*0.7));
+  out.push(up[0]*2, up[1]*2, n[2]*1.2);
+  return out;
+}
+
+/* ---------------- F3b: trainable signs (kNN) ---------------- */
+let taught = store.get('slt.signs', []); // {label, kind:'static'|'motion', vec:number[]}
+const saveSigns = () => store.set('slt.signs', taught);
+const rms = (a,b) => { let s=0; const n=Math.min(a.length,b.length); for(let i=0;i<n;i++){ const d=a[i]-b[i]; s+=d*d; } return Math.sqrt(s/n); };
+function knn(vec, kind, tau){
+  const pool = taught.filter(s => s.kind===kind && s.vec.length===vec.length);
+  if (!pool.length) return null;
+  // nearest distance per label (mean of its 3 closest samples, robust to one stray sample)
+  const per = {};
+  for (const s of pool){ (per[s.label] ||= []).push(rms(vec, s.vec)); }
+  const ranked = Object.entries(per).map(([label, ds]) => { ds.sort((a,b)=>a-b); const k = ds.slice(0,3); return { label, d: k.reduce((a,b)=>a+b,0)/k.length }; }).sort((a,b)=>a.d-b.d);
+  const [b1, b2] = ranked;
+  const prox = d => Math.exp(-Math.pow(d/(tau*settings.sensitivity), 2));
+  // margin: if the runner-up is almost as close, confidence drops toward 0
+  const margin = b2 ? clamp((b2.d - b1.d) / (0.5*b2.d || 1e-6), 0, 1) : 1;
+  return { label:b1.label, type: kind==='letter' ? 'letter' : 'word', conf: prox(b1.d) * margin, d:b1.d,
+           src: kind==='letter' ? 'calibrated' : 'taught', alts: ranked.slice(1,3).map(x => ({ label:x.label, conf:prox(x.d) })) };
+}
+// Motion descriptor: 8 time-steps × (normalized handshape + wrist trajectory relative to hand size)
+function motionDescriptor(frames){
+  if (frames.length < 5) return null;
+  const t0 = frames[0].t, t1 = frames[frames.length-1].t, out = [];
+  const w0 = frames[0].wrist, sc = frames.reduce((a,f)=>a+f.size,0)/frames.length || 1;
+  for (let k=0;k<8;k++){
+    const tt = t0 + (t1-t0)*k/7;
+    let f = frames[0]; for (const x of frames){ if (x.t <= tt) f = x; else break; }
+    for (let i=0;i<f.vec.length;i+=3){ out.push(f.vec[i]*0.5, f.vec[i+1]*0.5); }
+    out.push(((f.wrist[0]-w0[0])/sc)*(f.flip?-1:1)*2, ((f.wrist[1]-w0[1])/sc)*2);
+  }
+  return out;
+}
+function motionEnergy(frames, ms){
+  const now = frames.length ? frames[frames.length-1].t : 0; let len = 0, prev = null, sc = 1;
+  for (const f of frames){ if (f.t < now-ms) continue; if (prev) len += Math.hypot(f.wrist[0]-prev.wrist[0], f.wrist[1]-prev.wrist[1]); prev = f; sc = f.size||1; }
+  return len / sc;
+}
+
+/* ---------------- F3c: gloss → English (rule-based stand-in for ST-GCN/Transformer) ---------------- */
+const WH = ['WHAT','WHERE','WHO','WHEN','WHY','HOW'];
+const VERBS = { NEED:'need', WANT:'want', HELP:'help', UNDERSTAND:'understand', LIKE:'like', KNOW:'know', GO:'go', FEEL:'feel', HAVE:'have', LOVE:'love', SEE:'see', DRINK:'drink', EAT:'eat', CALL:'call' };
+const NOUNS = { DOCTOR:'a doctor', NURSE:'a nurse', INTERPRETER:'an interpreter', BATHROOM:'the bathroom', HOSPITAL:'the hospital', PHARMACY:'the pharmacy', EXIT:'the exit', WATER:'water', PAIN:'pain', HELP:'help', MEDICINE:'medicine' };
+const LEX = { ME:'I', I:'I', MY:'my', YOU:'you', YOUR:'your', HERE:'here', NOW:'now', PLEASE:'please', NAME:'name', TODAY:'today', TOMORROW:'tomorrow' };
+const FIXED = { HELLO:'Hello.', 'THANK-YOU':'Thank you.', 'I-LOVE-YOU':'I love you.', YES:'Yes.', NO:'No.', PLEASE:'Please.', SORRY:'Sorry.', BYE:'Goodbye.' };
+function mergeLetters(tokens){
+  const out = []; let buf = '';
+  for (const t of tokens){
+    if (t.type === 'letter'){ buf += t.label; continue; }
+    if (buf){ out.push({ g:buf, spelled:true }); buf=''; }
+    out.push({ g:t.label.toUpperCase() });
+  }
+  if (buf) out.push({ g:buf, spelled:true });
+  return out;
+}
+function wordOf(w, asObject){
+  if (w.spelled) return cap(w.g.toLowerCase());
+  if (asObject && NOUNS[w.g]) return NOUNS[w.g];
+  return VERBS[w.g] || LEX[w.g] || NOUNS[w.g] || w.g.toLowerCase().replace(/-/g,' ');
+}
+function sentenceFrom(W, q){
+  if (!W.length) return '';
+  const G = W.map(w => w.spelled ? '#' : w.g);
+  // leading fixed expressions become their own sentence: HELLO ME NEED HELP → "Hello. I need help."
+  if (FIXED[G[0]] && G.length > 1 && G[0] !== 'PLEASE') return FIXED[G[0]] + ' ' + sentenceFrom(W.slice(1), q);
+  if (G.length === 1 && FIXED[G[0]]) return FIXED[G[0]];
+  const has = g => G.includes(g);
+  const phrase = ws => ws.map(w => wordOf(w, true)).join(' ');
+  if (has('NAME') && has('WHAT') && has('YOU')) return 'What is your name?';
+  if (G[0]==='MY' && G[1]==='NAME') return `My name is ${phrase(W.slice(2)) || '…'}.`;
+  if (G[0]==='ME' && G[1]==='NAME') return `My name is ${phrase(W.slice(2)) || '…'}.`;
+  const wh = G.find(g => WH.includes(g));
+  if (wh){
+    const r = W.filter(w => w.spelled || w.g !== wh);
+    const v = r.find(w => VERBS[w.g]);
+    if (!v) return cap(`${wh.toLowerCase()} is ${phrase(r)}`.trim()) + '?';
+    const subjW = r.find(w => w.g==='YOU' || w.g==='ME');
+    const subj = subjW ? (subjW.g==='ME' ? 'I' : 'you') : 'you';
+    const rest = r.filter(w => w !== subjW && w !== v);
+    return cap(`${wh.toLowerCase()} do ${subj} ${wordOf(v)} ${phrase(rest)}`.replace(/\s+/g,' ').trim()) + '?';
+  }
+  const subjW = W.find(w => w.g==='ME' || w.g==='YOU' || w.g==='I');
+  let subj = subjW ? (subjW.g==='YOU' ? 'you' : 'I') : null;
+  const neg = has('NOT');
+  let body = W.filter(w => w !== subjW && w.g !== 'NOT');
+  let vIdx = body.findIndex(w => VERBS[w.g] && !(w.g==='HELP' && body.some(x=>VERBS[x.g] && x.g!=='HELP')));
+  if (vIdx < 0 && body.some(w => w.g==='PAIN')){ body = [{g:'HAVE'}, ...body]; vIdx = 0; }
+  if (!subj && vIdx >= 0) subj = 'I';
+  const verb = vIdx >= 0 ? body.splice(vIdx,1)[0] : null;
+  const obj = phrase(body);
+  let s;
+  if (q && subj && verb) s = `${neg ? "don't" : 'do'} ${subj} ${wordOf(verb)} ${obj}`;
+  else s = [subj, verb ? `${neg ? "don't " : ''}${wordOf(verb)}` : (neg ? 'not' : null), obj].filter(Boolean).join(' ');
+  return cap(s.replace(/\s+/g,' ').trim()) + (q ? '?' : '.');
+}
+const glossToEnglish = (tokens, q) => sentenceFrom(mergeLetters(tokens), q);
+const glossString = tokens => mergeLetters(tokens).map(w => w.spelled ? `fs-${w.g}` : w.g).join(' ');
+// English → ASL gloss guide for the Deaf reader (drop articles/copulas, WH-word last)
+function englishToGloss(text){
+  const drop = new Set(['a','an','the','is','are','am','was','were','be','to','do','does','did','of']);
+  const map = { i:'ME', me:'ME', my:'MY', mine:'MY', your:'YOUR', you:'YOU', "don't":'NOT', "can't":'CAN-NOT', "won't":'NOT', "i'm":'ME', "you're":'YOU', "it's":'IT', thanks:'THANK-YOU', hi:'HELLO' };
+  let w = text.toLowerCase().replace(/[^a-z0-9'\s-]/g,'').split(/\s+/).filter(Boolean);
+  const out = []; for (let i=0;i<w.length;i++){ if (w[i]==='thank' && w[i+1]==='you'){ out.push('THANK-YOU'); i++; continue; } if (drop.has(w[i])) continue; out.push(map[w[i]] || w[i].toUpperCase()); }
+  if (WH.includes(out[0]) && out.length > 1) out.push(out.shift());
+  return out.join(' ');
+}
+
+/* ---------------- Segmentation state machine (R6, R10) ---------------- */
+const seg = { win:[], lowFrames:0, locked:null, lastHandT:0, phrase:[], q:false, unclearFor:null, motionCooldownUntil:0, lastTokenT:0 };
+let handBuf = []; // recent dominant-hand frames for motion signs
+let lastClass = null;
+const metrics = { fps:0, inferMs:0, faceMs:0, translateMs:null, endToTextMs:null, lastD:null, res:'', luma:null };
+
+function emitToken(label, type, conf){
+  seg.phrase.push({ label, type, conf, t:performance.now() });
+  seg.lastTokenT = performance.now();
+  renderPhrase();
+}
+function renderPhrase(){
+  const el = $('#phrase');
+  if (!seg.phrase.length){ el.innerHTML = '<span class="ph">Signs appear here. Lower your hands or pause to send the phrase.</span>'; return; }
+  el.innerHTML = '';
+  for (const t of seg.phrase){
+    const s = document.createElement('span'); s.className = 'tok' + (t.type==='letter' ? ' letter' : '');
+    s.textContent = t.label; s.title = `${Math.round(t.conf*100)}% confidence`; el.appendChild(s);
+  }
+  const prev = document.createElement('span'); prev.className = 'ph'; prev.textContent = '→ ' + glossToEnglish(seg.phrase, seg.q); el.appendChild(prev);
+}
+let unclearTimer;
+function showUnclear(){ const u = $('#unclear'); u.classList.add('show'); clearTimeout(unclearTimer); unclearTimer = setTimeout(()=>u.classList.remove('show'), 1400); }
+function endPhrase(detectedAt){
+  if (!seg.phrase.length) return;
+  const t0 = performance.now();
+  const tokens = seg.phrase.slice();
+  const text = glossToEnglish(tokens, seg.q);
+  addMessage({ from:'signer', via:'sign', text, gloss:glossString(tokens), conf: tokens.reduce((a,t)=>a+t.conf,0)/tokens.length });
+  metrics.translateMs = performance.now() - t0;
+  metrics.endToTextMs = performance.now() - (detectedAt ?? t0);
+  seg.phrase = []; seg.q = false; $('#chipQ').hidden = true; renderPhrase();
+}
+function setCurrent(c){
+  lastClass = c;
+  const thr = settings.threshold;
+  $('#curSign').textContent = c && c.label ? c.label : '—';
+  $('#confFill').style.width = c ? Math.round(c.conf*100)+'%' : '0';
+  $('#confFill').style.background = c && c.conf >= thr ? 'var(--signer)' : 'var(--warn)';
+  $('#confTxt').textContent = c && c.label ? `Confidence ${Math.round(c.conf*100)}% · ${c.src}` : 'Confidence –';
+  $('#alts').textContent = c?.alts?.length ? 'Also close: ' + c.alts.map(a => `${a.label} ${Math.round(a.conf*100)}%`).join(' · ') : '';
+}
+
+// Called each frame with the dominant hand (or null). Exposed for testing.
+function processHand(h, now){
+  if (!h){
+    setCurrent(null);
+    seg.win = []; seg.locked = null;
+    if (!seg.phrase.length && seg.q){ seg.q = false; $('#chipQ').hidden = true; }
+    if (seg.phrase.length && now - seg.lastHandT > settings.pauseMs) endPhrase(now);
+    return;
+  }
+  seg.lastHandT = now;
+  handBuf.push({ t:now, vec:h.vec, wrist:h.wrist, size:h.bbox.size, flip:h.flip });
+  while (handBuf.length && handBuf[0].t < now - 1600) handBuf.shift();
+
+  // motion signs
+  const motionKinds = taught.some(s => s.kind==='motion');
+  const moving = motionEnergy(handBuf, 350) > 0.35;
+  if (motionKinds && now > seg.motionCooldownUntil && motionEnergy(handBuf, 1000) > 0.6){
+    const win = handBuf.filter(f => f.t >= now - 1100);
+    const desc = motionDescriptor(win);
+    const m = desc && knn(desc, 'motion', 0.32);
+    if (m){ metrics.lastD = m.d; if (m.conf >= settings.threshold){ if (!testRun) emitToken(m.label, 'word', m.conf); setCurrent(m); seg.motionCooldownUntil = now + 800; handBuf = []; seg.locked = null; seg.win = []; return; } }
+  }
+
+  // static handshape: taught word signs, calibrated letters, then built-in alphabet
+  const c = classifyStatic(h);
+  setCurrent(c);
+  if (testRun?.samples) testRun.samples.push(c && c.conf >= settings.threshold ? c.label : null);
+  if (moving){ seg.win = []; return; } // hold still for static signs
+
+  // windowed vote: emit when ≥75% of the last N frames agree and their mean confidence passes
+  seg.win.push(c);
+  const N = settings.holdFrames;
+  while (seg.win.length > N) seg.win.shift();
+  if (seg.win.length < N) return;
+  const tally = {};
+  for (const x of seg.win) if (x) (tally[x.label] ||= []).push(x);
+  const top = Object.entries(tally).sort((a,b) => b[1].length - a[1].length)[0];
+  if (!top || top[1].length < Math.ceil(N*0.75)){ if (!top) seg.locked = null; return; }
+  const [label, hits] = top;
+  if (label === seg.locked || testRun) return;
+  const avg = hits.reduce((a,x)=>a+x.conf,0) / hits.length;
+  if (avg >= settings.threshold){ emitToken(label, hits[0].type, avg); seg.locked = label; seg.unclearFor = null; }
+  else { seg.lowFrames = (seg.lowFrames||0) + 1; if (seg.lowFrames >= N && seg.unclearFor !== label){ seg.unclearFor = label; seg.lowFrames = 0; showUnclear(); } }
+}
+function classifyStatic(h){
+  const cands = [];
+  const w = knn(h.vec, 'static', 0.16);
+  if (w){ cands.push(w); metrics.lastD = w.d; }
+  const calibrated = new Set(taught.filter(s => s.kind==='letter').map(s => s.label));
+  if (calibrated.size){ const l = knn(letterVec(h.pts), 'letter', 0.2); if (l){ cands.push(l); metrics.lastD = l.d; } }
+  if (settings.alphabet){
+    const a = classifyAlphabet(h.pts);
+    // once a letter is calibrated, the personal samples decide it, not the built-in rules
+    if (a.label && !calibrated.has(a.label)) cands.push(a);
+    else if (a.label === null) cands.push({ label:null, conf:a.conf });
+  }
+  cands.sort((x,y) => y.conf - x.conf);
+  const best = cands[0];
+  if (!best || !best.label) return null;
+  best.alts = [...(best.alts||[]), ...cands.slice(1).filter(x=>x.label && x.label!==best.label).map(x=>({label:x.label, conf:x.conf}))]
+    .filter(x => x.label !== best.label).sort((a,b)=>b.conf-a.conf).slice(0,2);
+  return best;
+}
+
+/* ---------------- Frame loop ---------------- */
+let lastVideoTime = -1, frameNo = 0, lastFrameT = 0, lowFpsSince = 0, highFpsSince = 0;
+let lastFace = null, lastPose = null;
+const lumaCanvas = document.createElement('canvas'); lumaCanvas.width = 32; lumaCanvas.height = 18;
+const lumaCtx = lumaCanvas.getContext('2d', { willReadFrequently:true });
+let recording = null; // teach-mode capture
+
+function loop(){
+  if (!running) return;
+  requestAnimationFrame(loop);
+  if (video.readyState < 2 || video.currentTime === lastVideoTime) return;
+  lastVideoTime = video.currentTime;
+  const now = performance.now();
+  frameNo++;
+  if (lastFrameT){ const inst = 1000/(now-lastFrameT); metrics.fps = metrics.fps ? metrics.fps*0.9 + inst*0.1 : inst; }
+  lastFrameT = now;
+
+  const W = video.videoWidth, H = video.videoHeight;
+  if (overlay.width !== W || overlay.height !== H){ overlay.width = W; overlay.height = H; }
+  metrics.res = `${W}×${H}`;
+
+  const t0 = performance.now();
+  const hr = handLm.detectForVideo(video, now);
+  metrics.inferMs = performance.now() - t0;
+  if (settings.faceBody && faceLm && poseLm){
+    const t1 = performance.now();
+    if (frameNo % 2 === 0) lastFace = faceLm.detectForVideo(video, now + 0.01);
+    if (frameNo % 3 === 0) lastPose = poseLm.detectForVideo(video, now + 0.02);
+    metrics.faceMs = performance.now() - t1;
+  } else { lastFace = lastPose = null; }
+
+  // luminance check (R7)
+  if (frameNo % 15 === 0){
+    lumaCtx.drawImage(video, 0, 0, 32, 18);
+    const d = lumaCtx.getImageData(0,0,32,18).data; let s = 0;
+    for (let i=0;i<d.length;i+=4) s += 0.2126*d[i] + 0.7152*d[i+1] + 0.0722*d[i+2];
+    metrics.luma = s / (d.length/4);
+  }
+
+  const hands = (hr.landmarks||[]).map((lm,i) => {
+    const hd = hr.handedness?.[i]?.[0];
+    const flip = hd?.categoryName === 'Left';
+    return { lm, score: hd?.score ?? 0, side: hd?.categoryName, flip, ...normalizeHand(lm, W, H, flip) };
+  });
+  draw(hands, lastFace, lastPose);
+
+  // "hands lowered": wrist below the bottom 8% of the frame counts as resting
+  const active = hands.filter(h => h.lm[0].y < 0.92);
+  const dom = active.sort((a,b) => b.bbox.size - a.bbox.size)[0] || null;
+  smoothHand(dom);
+
+  // non-manual marker: raised eyebrows → yes/no question
+  const bs = lastFace?.faceBlendshapes?.[0]?.categories;
+  if (bs && dom){
+    const g = n => bs.find(c => c.categoryName===n)?.score || 0;
+    const brow = (g('browInnerUp') + (g('browOuterUpLeft') + g('browOuterUpRight'))/2) / 2;
+    if (brow > 0.42){ seg.q = true; $('#chipQ').hidden = false; }
+  }
+
+  if (recording) captureForTeach(dom, now);
+  else processHand(dom, now);
+
+  updateChips(hands, active);
+  adaptResolution(now);
+  if (settings.debug) renderDebug(hands);
+}
+
+// Exponential smoothing of the dominant hand's normalized landmarks: removes frame-to-frame
+// jitter (which flips look-alike letters) while keeping ~2 frames of lag. Resets if the hand jumps.
+let smoothPts = null, smoothWrist = null;
+function smoothHand(h){
+  if (!h){ smoothPts = null; return; }
+  const a = 0.5;
+  if (smoothPts && Math.hypot(h.wrist[0]-smoothWrist[0], h.wrist[1]-smoothWrist[1]) < h.bbox.size*0.5)
+    smoothPts = smoothPts.map((p,i) => p.map((v,k) => v*(1-a) + h.pts[i][k]*a));
+  else smoothPts = h.pts.map(p => p.slice());
+  smoothWrist = h.wrist;
+  h.pts = smoothPts; h.vec = smoothPts.flat();
+}
+function draw(hands, face, pose){
+  ctx.clearRect(0,0,overlay.width,overlay.height);
+  if (!drawer) drawer = new MP.DrawingUtils(ctx);
+  const lw = Math.max(2, overlay.width/400);
+  if (pose?.landmarks?.[0]){
+    const lm = pose.landmarks[0];
+    const conns = MP.PoseLandmarker.POSE_CONNECTIONS.filter(c => c.start>=11 && c.end>=11 && c.start<=24 && c.end<=24);
+    drawer.drawConnectors(lm, conns, { color:'rgba(255,255,255,.55)', lineWidth:lw });
+    drawer.drawLandmarks(lm.filter((_,i)=>i>=11&&i<=24), { color:'rgba(255,255,255,.8)', lineWidth:1, radius:lw });
+  }
+  if (face?.faceLandmarks?.[0]){
+    drawer.drawConnectors(face.faceLandmarks[0], MP.FaceLandmarker.FACE_LANDMARKS_CONTOURS, { color:'rgba(160,200,255,.6)', lineWidth:1 });
+  }
+  hands.forEach((h,i) => {
+    const col = i===0 ? '#3ff0c8' : '#ffb34d';
+    drawer.drawConnectors(h.lm, MP.HandLandmarker.HAND_CONNECTIONS, { color:col, lineWidth:lw*1.4 });
+    drawer.drawLandmarks(h.lm, { color:'#fff', fillColor:col, lineWidth:1, radius:lw*1.3 });
+  });
+}
+
+function updateChips(hands, active){
+  const ch = (id, txt, on) => { const e = $(id); e.textContent = txt; e.classList.toggle('on', !!on); };
+  ch('#chipHands', `Hands ${hands.length}`, hands.length);
+  const f = settings.faceBody ? (lastFace?.faceLandmarks?.length ? 'Face ✓' : (faceLm ? 'Face –' : 'Face …')) : 'Face off';
+  ch('#chipFace', f, lastFace?.faceLandmarks?.length);
+  const p = settings.faceBody ? (lastPose?.landmarks?.length ? 'Pose ✓' : (poseLm ? 'Pose –' : 'Pose …')) : 'Pose off';
+  ch('#chipPose', p, lastPose?.landmarks?.length);
+  ch('#chipLight', metrics.luma==null ? 'Light –' : `Light ${Math.round(metrics.luma/2.55)}%`, metrics.luma > 60);
+
+  // R7 warnings: low light, low tracking confidence (<60%), hands overlapping or at the frame edge
+  let warn = '';
+  if (metrics.luma != null && metrics.luma < 55) warn = '💡 Low light — face a window or lamp so your hands are lit';
+  else if (hands.some(h => h.score < 0.6)) warn = `✋ Tracking confidence ${Math.round(Math.min(...hands.map(h=>h.score))*100)}% — keep hands fully in frame`;
+  else if (hands.length === 2 && overlapIoU(hands[0].bbox, hands[1].bbox) > 0.25) warn = '✋ Hands overlapping — tracking may be unreliable';
+  else if (active.some(h => h.lm.some(p => p.x < 0.01 || p.x > 0.99 || p.y < 0.01))) warn = '↔ Hand at the edge of the frame — step back a little';
+  const w = $('#warn'); w.textContent = warn; w.classList.toggle('show', !!warn);
+}
+function overlapIoU(a,b){
+  const ix = Math.max(0, Math.min(a.maxx,b.maxx) - Math.max(a.minx,b.minx));
+  const iy = Math.max(0, Math.min(a.maxy,b.maxy) - Math.max(a.miny,b.miny));
+  const inter = ix*iy, ua = (a.maxx-a.minx)*(a.maxy-a.miny) + (b.maxx-b.minx)*(b.maxy-b.miny) - inter;
+  return ua > 0 ? inter/ua : 0;
+}
+// R4: step resolution down when the device can't keep up, back up when it's comfortable
+function adaptResolution(now){
+  if (settings.res !== 'auto' || !stream) return;
+  const i = RES_ORDER.indexOf(autoRes);
+  if (metrics.fps < 18){ highFpsSince = 0; lowFpsSince ||= now; if (now - lowFpsSince > 3000 && i > 0){ autoRes = RES_ORDER[i-1]; applyResolution(autoRes); lowFpsSince = 0; toast(`Lowered resolution to keep tracking smooth`); } }
+  else if (metrics.fps > 28){ lowFpsSince = 0; highFpsSince ||= now; if (now - highFpsSince > 15000 && i < 1 && pickAutoRes() !== 'low'){ autoRes = RES_ORDER[i+1]; applyResolution(autoRes); highFpsSince = 0; } }
+  else { lowFpsSince = 0; highFpsSince = 0; }
+}
+function renderDebug(hands){
+  const mem = performance.memory ? (performance.memory.usedJSHeapSize/1048576).toFixed(0)+' MB' : 'n/a (Chrome only)';
+  const f = n => n==null ? '–' : n.toFixed(1);
+  $('#debug').textContent =
+`FPS            ${f(metrics.fps)}
+Resolution     ${metrics.res}${settings.res==='auto'?' (auto)':''}
+Delegate       ${delegate}
+Hand infer     ${f(metrics.inferMs)} ms
+Face+pose      ${settings.faceBody ? f(metrics.faceMs)+' ms' : 'off'}
+Translate      ${f(metrics.translateMs)} ms
+Pause→text     ${f(metrics.endToTextMs)} ms  (target <150)
+JS heap        ${mem}
+Model load     ${(modelLoadMs/1000).toFixed(1)} s
+Hand score     ${hands.map(h=>Math.round(h.score*100)+'%').join(' / ') || '–'}
+kNN distance   ${f(metrics.lastD)}
+Taught samples ${taught.length}`;
+}
+
+/* ---------------- Teach mode ---------------- */
+function captureForTeach(dom, now){
+  const r = recording;
+  if (now < r.startAt){ return; }
+  if (dom){
+    if (r.kind === 'static'){ if ((r.n++ % 2) === 0) r.samples.push(dom.vec.slice()); }
+    else if (r.kind === 'letter'){ if ((r.n++ % 2) === 0) r.samples.push(letterVec(dom.pts)); }
+    else r.frames.push({ t:now, vec:dom.vec, wrist:dom.wrist, size:dom.bbox.size, flip:dom.flip });
+  }
+  if (now >= r.endAt){
+    recording = null;
+    let added = 0;
+    if (r.kind === 'static' || r.kind === 'letter'){ r.samples.forEach(v => taught.push({ label:r.label, kind:r.kind, vec:v })); added = r.samples.length; r.added = added; }
+    else { const d = motionDescriptor(r.frames); if (d){ taught.push({ label:r.label, kind:'motion', vec:d }); added = 1; } }
+    saveSigns(); renderTaught();
+    $('#teachStatus').textContent = added ? `Saved ${r.kind==='static' ? added+' samples' : '1 recording'} of “${r.label}”. ${r.kind==='motion' ? 'Record it 2–3 more times.' : ''}` : 'No hand was detected — try again with your hand in frame.';
+    $('#btnRecord').disabled = false;
+  }
+}
+function startRecording(){
+  const label = $('#teachLabel').value.trim().toUpperCase().replace(/\s+/g,'-');
+  if (!label){ $('#teachLabel').focus(); toast('Type a gloss label first'); return; }
+  if (!running){ toast('Start the camera first'); return; }
+  const kind = document.querySelector('input[name=teachType]:checked').value;
+  $('#btnRecord').disabled = true;
+  const cd = $('#countdown'); let n = 3; cd.textContent = n; cd.classList.add('show');
+  const iv = setInterval(() => {
+    n--; if (n > 0){ cd.textContent = n; return; }
+    clearInterval(iv); cd.textContent = kind==='static' ? 'Hold…' : 'Sign!';
+    const now = performance.now(), dur = kind==='static' ? 1500 : 1200;
+    recording = { label, kind, startAt:now, endAt:now+dur, samples:[], frames:[], n:0 };
+    setTimeout(()=>cd.classList.remove('show'), dur);
+  }, 700);
+  $('#teachStatus').textContent = kind==='static' ? 'Get ready to hold the handshape…' : 'Get ready to perform the sign once…';
+}
+function renderTaught(){
+  const ul = $('#taughtList'); ul.innerHTML = '';
+  const groups = {};
+  taught.forEach(s => { if (s.kind === 'letter') return; const k = s.label+'|'+s.kind; groups[k] = (groups[k]||0)+1; });
+  Object.entries(groups).forEach(([k,n]) => {
+    const [label, kind] = k.split('|');
+    const li = document.createElement('li');
+    li.innerHTML = `<b></b><span class="muted"></span><button aria-label="Delete">✕</button>`;
+    li.querySelector('b').textContent = label;
+    li.querySelector('span').textContent = `${kind==='motion' ? '↝ moving' : '✋ held'} · ${n}`;
+    li.querySelector('button').onclick = () => { taught = taught.filter(s => !(s.label===label && s.kind===kind)); saveSigns(); renderTaught(); };
+    ul.appendChild(li);
+  });
+  renderLetterGrid();
+}
+
+/* ---------------- Alphabet calibration + accuracy test (R8) ---------------- */
+const CAL_LETTERS = 'ABCDEFGHIKLMNOPQRSTUVWXY'.split(''); // J and Z move, so they are not static letters
+const FIST_LETTERS = ['A','E','M','N','S','T'];
+const LETTER_HINTS = {
+  A:'Fist, thumb pressed against the side of the index finger', B:'Flat hand up, fingers together, thumb folded across the palm',
+  C:'Curve the hand into a C', D:'Index up; other fingertips touch the thumb', E:'Fingertips curled down, resting on the tucked thumb',
+  F:'Index and thumb touch; other three fingers up', G:'Index and thumb point sideways, parallel', H:'Index and middle point sideways together',
+  I:'Pinky up, fist', K:'Index and middle up, thumb between them', L:'Thumb and index make an L', M:'Thumb tucked under three fingers',
+  N:'Thumb tucked under index and middle', O:'All fingertips meet the thumb in an O', P:'Like K, pointing down', Q:'Like G, pointing down',
+  R:'Index and middle crossed', S:'Fist, thumb across the front of the fingers', T:'Thumb tucked between index and middle',
+  U:'Index and middle up, together', V:'Index and middle up, apart', W:'Index, middle and ring up', X:'Index bent like a hook', Y:'Thumb and pinky out',
+};
+let wizard = null, testRun = null;
+const calibratedSet = () => new Set(taught.filter(s => s.kind==='letter').map(s => s.label));
+function renderLetterGrid(bad = new Set()){
+  const g = $('#letterGrid'); if (!g) return;
+  const done = calibratedSet();
+  g.innerHTML = '';
+  CAL_LETTERS.forEach(L => {
+    const b = document.createElement('button');
+    b.textContent = L; b.title = `${LETTER_HINTS[L]} — click to ${done.has(L) ? 're-record' : 'record'}`;
+    b.className = (done.has(L) ? 'done' : '') + (bad.has(L) ? ' bad' : '');
+    b.onclick = () => { if (!wizard) runCalibration([L]); };
+    g.appendChild(b);
+  });
+}
+function showPrompt(letter, step, hint){
+  $('#promptLetter').textContent = letter; $('#promptStep').textContent = step; $('#promptHint').textContent = hint;
+  $('#promptBar').style.width = '0'; $('#prompt').classList.add('show');
+}
+const hidePrompt = () => $('#prompt').classList.remove('show');
+function progress(ms, job){
+  return new Promise(res => {
+    const t0 = performance.now();
+    const iv = setInterval(() => {
+      const f = Math.min(1, (performance.now()-t0)/ms);
+      $('#promptBar').style.width = (f*100) + '%';
+      if (f >= 1 || job.stopped){ clearInterval(iv); res(); }
+    }, 50);
+  });
+}
+function setRunUI(on){
+  ['#btnCalib','#btnCalibFist','#btnTest','#btnRecord'].forEach(id => $(id).disabled = on);
+  $('#btnStopRun').hidden = !on;
+}
+async function runCalibration(letters){
+  if (!running){ toast('Start the camera first'); return; }
+  const job = wizard = { stopped:false }; setRunUI(true);
+  const missed = new Set();
+  for (let i = 0; i < letters.length && !job.stopped; i++){
+    const L = letters[i];
+    showPrompt(L, `Calibrating ${i+1} of ${letters.length} · get ready`, LETTER_HINTS[L]);
+    await progress(1800, job); if (job.stopped) break;
+    $('#promptStep').textContent = `Calibrating ${i+1} of ${letters.length} · hold still`; $('#promptBar').style.width = '0';
+    const old = taught.filter(s => s.kind==='letter' && s.label===L);
+    taught = taught.filter(s => !(s.kind==='letter' && s.label===L));
+    const now = performance.now();
+    const rec = recording = { label:L, kind:'letter', startAt:now, endAt:now+1500, samples:[], frames:[], n:0 };
+    await progress(1500, job);
+    while (recording === rec && !job.stopped) await sleep(50);
+    if (job.stopped && recording === rec){ recording = null; }
+    if (!rec.added){ taught.push(...old); missed.add(L); }
+  }
+  saveSigns(); hidePrompt(); setRunUI(false); wizard = null; renderTaught(); renderLetterGrid(missed);
+  $('#teachStatus').textContent = job.stopped ? 'Calibration stopped — finished letters were kept.'
+    : missed.size ? `No hand seen for ${[...missed].join(', ')} — click those letters to try again.` : `Calibrated ${letters.length} letter${letters.length>1?'s':''}. Run “Test accuracy” to check.`;
+}
+async function runAccuracyTest(){
+  if (!running){ toast('Start the camera first'); return; }
+  const cal = [...calibratedSet()];
+  const pool = cal.length >= 3 ? cal : (settings.alphabet ? BUILTIN_LETTERS : []);
+  if (!pool.length){ toast('Turn on the built-in alphabet or calibrate some letters first'); return; }
+  const letters = pool.slice().sort(() => Math.random() - 0.5);
+  const job = wizard = { stopped:false }; setRunUI(true);
+  const results = [];
+  for (let i = 0; i < letters.length && !job.stopped; i++){
+    const L = letters[i];
+    testRun = { samples:null };
+    showPrompt(L, `Accuracy test ${i+1} of ${letters.length} · get ready`, LETTER_HINTS[L]);
+    await progress(1600, job); if (job.stopped) break;
+    $('#promptStep').textContent = `Accuracy test ${i+1} of ${letters.length} · hold`; $('#promptBar').style.width = '0';
+    testRun.samples = [];
+    await progress(1500, job); if (job.stopped) break;
+    const counts = {}; testRun.samples.forEach(x => { const k = x || '—'; counts[k] = (counts[k]||0)+1; });
+    const [got, n] = Object.entries(counts).sort((a,b)=>b[1]-a[1])[0] || ['—',0];
+    const total = testRun.samples.length;
+    results.push({ want:L, got: (got !== '—' && n >= total*0.4) ? got : 'unclear' });
+  }
+  testRun = null; hidePrompt(); setRunUI(false); wizard = null;
+  if (!results.length){ $('#testResult').textContent = 'Test stopped.'; return; }
+  const ok = results.filter(r => r.got === r.want).length;
+  const unclear = results.filter(r => r.got === 'unclear').length;
+  const wrong = results.filter(r => r.got !== r.want && r.got !== 'unclear');
+  const pct = Math.round(ok/results.length*100);
+  const conf = {}; wrong.forEach(r => { const k = `${r.want} → ${r.got}`; conf[k] = (conf[k]||0)+1; });
+  $('#testResult').innerHTML = `<b>${ok} / ${results.length} correct (${pct}%)</b> · ${wrong.length} wrong · ${unclear} unclear ` +
+    `<span class="muted">(${cal.length >= 3 ? 'calibrated letters' : 'built-in alphabet'}; target ≥ 85%)</span>` +
+    (wrong.length ? `<table><tr><th>Signed → read as</th><th>×</th></tr>${Object.entries(conf).map(([k,v])=>`<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table><div class="muted">Re-record the letters outlined in orange, then test again.</div>` : '');
+  renderLetterGrid(new Set(results.filter(r => r.got !== r.want).map(r => r.want)));
+}
+
+/* ---------------- F5: conversation thread + TTS ---------------- */
+const thread = $('#thread');
+const messages = [];
+function addMessage(m){
+  m.time = new Date(); messages.push(m);
+  $('#empty')?.remove();
+  const wrap = document.createElement('div'); wrap.className = 'msg ' + m.from;
+  const via = { sign:'🤟 Signed', speech:'🎤 Spoken', typed:'⌨️ Typed' }[m.via];
+  const meta = document.createElement('div'); meta.className = 'meta';
+  meta.textContent = `${m.from==='signer' ? 'Signer' : 'Speaker'} · ${via} · ${m.time.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}` + (m.conf ? ` · ${Math.round(m.conf*100)}%` : '');
+  const b = document.createElement('div'); b.className = 'bubble';
+  const body = document.createElement('div');
+  const tx = document.createElement('div'); tx.className = 'text'; tx.textContent = m.text;
+  const gl = document.createElement('div'); gl.className = 'gloss';
+  gl.textContent = m.from==='signer' ? `Signs: ${m.gloss}` : `ASL gloss: ${englishToGloss(m.text)}`;
+  body.append(tx, gl);
+  const say = document.createElement('button'); say.className = 'say'; say.title = 'Read aloud'; say.setAttribute('aria-label','Read aloud'); say.textContent = '🔊';
+  say.onclick = () => speak(m.text);
+  b.append(body, say);
+  wrap.append(meta, b); thread.appendChild(wrap);
+  thread.scrollTop = thread.scrollHeight;
+  if (m.from === 'speaker'){ $('#capText').textContent = m.text; }
+  if (m.from === 'signer' && settings.autoSpeak) speak(m.text);
+}
+let voices = [];
+function loadVoices(){
+  if (!('speechSynthesis' in window)) return;
+  voices = speechSynthesis.getVoices().filter(v => /^en|^es|^fr/i.test(v.lang));
+  const sel = $('#selVoice'); const cur = settings.voice;
+  sel.innerHTML = '<option value="">System default</option>' + voices.map(v => `<option value="${v.name.replace(/"/g,'&quot;')}">${v.name} (${v.lang})</option>`).join('');
+  sel.value = cur;
+}
+function speak(text){
+  if (!('speechSynthesis' in window)){ toast('Text-to-speech is not supported in this browser'); return; }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  const v = voices.find(v => v.name === settings.voice); if (v) u.voice = v;
+  u.rate = settings.rate;
+  // pause speech recognition while speaking so the app doesn't transcribe itself
+  u.onstart = () => { if (listening && rec){ pausedForTTS = true; try{ rec.abort(); }catch{} } };
+  u.onend = u.onerror = () => { if (pausedForTTS){ pausedForTTS = false; if (listening) try{ rec.start(); }catch{} } };
+  speechSynthesis.speak(u);
+}
+
+/* ---------------- F4: speech-to-text + typed fallback ---------------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec = null, listening = false, pausedForTTS = false, micStream = null, audioCtx = null, levelRAF = 0;
+function setupRecognizer(){
+  rec = new SR(); rec.continuous = true; rec.interimResults = true; rec.lang = settings.lang;
+  rec.onresult = e => {
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++){
+      const r = e.results[i];
+      if (r.isFinal){ const txt = r[0].transcript.trim(); if (txt) addMessage({ from:'speaker', via:'speech', text:cap(txt), conf:r[0].confidence || null }); }
+      else interim += r[0].transcript;
+    }
+    $('#interim').textContent = interim;
+    if (interim){ const s = document.createElement('span'); s.className = 'interim'; s.textContent = interim; $('#capText').replaceChildren(s); }
+  };
+  rec.onerror = e => { if (e.error === 'not-allowed'){ toast('Microphone permission denied'); stopListening(); } else if (e.error !== 'aborted' && e.error !== 'no-speech') console.warn('ASR', e.error); };
+  rec.onend = () => { $('#interim').textContent = ''; if (listening && !pausedForTTS) try{ rec.start(); }catch{} };
+}
+async function startListening(){
+  if (!SR){ toast('Speech recognition needs Chrome or Edge — typing still works'); $('#txtMsg').focus(); return; }
+  try {
+    // R13: request the browser's noise suppression / echo cancellation on the mic and show a level meter
+    micStream = await navigator.mediaDevices.getUserMedia({ audio:{ noiseSuppression:true, echoCancellation:true, autoGainControl:true } });
+    const ns = micStream.getAudioTracks()[0].getSettings();
+    $('#nsStatus').textContent = ns.noiseSuppression ? 'Noise suppression on' : 'Noise suppression unavailable';
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const an = audioCtx.createAnalyser(); an.fftSize = 512;
+    audioCtx.createMediaStreamSource(micStream).connect(an);
+    const buf = new Float32Array(an.fftSize);
+    const tick = () => { an.getFloatTimeDomainData(buf); let s=0; for (const x of buf) s+=x*x; const r = Math.sqrt(s/buf.length); $('#micLevel').style.width = Math.min(100, r*400)+'%'; levelRAF = requestAnimationFrame(tick); };
+    tick();
+  } catch(e){ toast('Microphone permission denied'); return; }
+  if (!rec) setupRecognizer();
+  rec.lang = settings.lang;
+  listening = true; try{ rec.start(); }catch{}
+  $('#btnMic').setAttribute('aria-pressed','true'); $('#micStatus').textContent = 'Listening…';
+}
+function stopListening(){
+  listening = false; try{ rec?.stop(); }catch{}
+  cancelAnimationFrame(levelRAF); $('#micLevel').style.width = '0';
+  micStream?.getTracks().forEach(t=>t.stop()); micStream = null; audioCtx?.close(); audioCtx = null;
+  $('#btnMic').setAttribute('aria-pressed','false'); $('#micStatus').textContent = 'Mic off'; $('#nsStatus').textContent = ''; $('#interim').textContent = '';
+}
+
+/* ---------------- Requirements table ---------------- */
+const REQS = [
+  ['R1','Camera permissions & video initialization','KA','done','Start camera requests permission and renders the live feed; FPS shown in Debug.'],
+  ['R2','21-point hand landmark tracking','KA','done','MediaPipe HandLandmarker, up to 2 hands × 21 3-D points, drawn on the feed.'],
+  ['R3','Face & posture keypoint tracking','KA','done','FaceLandmarker (with blendshapes) and PoseLandmarker run alongside hands. Raised eyebrows mark a yes/no question.'],
+  ['R4','Camera switch & resolution adapt','KA','done','Flip camera button; Auto resolution starts from network hints and steps down if FPS stays under 18, without restarting tracking.'],
+  ['R5','Coordinate normalization','KS','done','Landmarks rescaled to −1…1 around each hand’s bounding box; left hands mirrored.'],
+  ['R6','Automated gesture pause detection','KS','done','Phrase auto-sends when hands drop out of frame or below it for the pause time (Settings).'],
+  ['R7','Low lighting / occlusion warnings','KS','done','Banner when frame brightness is low, hand tracking confidence < 60%, hands overlap, or a hand is at the edge.'],
+  ['R8','Isolated word / gloss classification','ZT','part','Built-in alphabet from palm-frame hand geometry (21 static letters + I-LOVE-YOU), per-person alphabet calibration, and an in-app accuracy test against the 85% target. Word signs use in-browser kNN until a WLASL-trained model is ready.'],
+  ['R9','Continuous sentence translation','ZT','part','Rule-based gloss→English grammar (WH-questions, topic–comment, negation, fingerspelled names). Placeholder for the ST-GCN / Transformer.'],
+  ['R10','Low-confidence prediction filter','ZT','done','Signs under the threshold (default 70%) are never added; a held unclear sign shows “Sign unclear — please re-sign”.'],
+  ['R11','Translation latency cap (<150 ms)','ZT','done','Pause→text and translate time measured live in Debug (rule-based step runs in ~1 ms).'],
+  ['R12','Continuous speech-to-text','RM','done','Web Speech API with live interim captions on the thread and on the video. In Chrome, this audio is processed by Google’s speech service.'],
+  ['R13','Environmental noise suppression','RM','part','Mic opened with browser noise suppression + echo cancellation and a level meter; Chrome’s recognizer applies its own processing.'],
+  ['R14','Keyboard text input fallback','RM','done','Type and press Enter; posts instantly to the shared thread.'],
+  ['R15','Dual-channel conversation thread UI','EC','done','Colour-coded, timestamped thread: signed (left) vs spoken/typed (right), with ASL gloss under replies.'],
+  ['R16','Text-to-speech voice playback','EC','done','Auto-speak signed messages or tap 🔊; voice and rate in Settings. Recognition pauses while it speaks.'],
+  ['R17','High-contrast accessibility mode','EC','done','Text-size slider and high-contrast theme apply instantly across the app.'],
+  ['R18','In-browser client inference (WASM)','KA','done','All landmark inference runs locally (WASM + GPU delegate). Video frames never leave the device.'],
+  ['R19','Offline model asset caching','ZT / KA','part','Taught signs and settings are saved locally; model files are reused from the browser cache. A service worker for full offline use needs the app hosted on https.'],
+  ['R20','FPS & latency debug telemetry','ZT','done','Debug overlay: FPS, resolution, delegate, inference ms, translation latency, JS heap, model load time.'],
+];
+function renderReqs(){
+  const lab = { done:'Working', part:'Partial', sim:'Planned' };
+  $('#reqBody').innerHTML = REQS.map(([id,name,own,st,how]) => `<tr><td><b>${id}</b></td><td>${name}</td><td>${own}</td><td><span class="st ${st}">${lab[st]}</span></td><td>${how}</td></tr>`).join('');
+}
+
+/* ---------------- Demo / simulate ---------------- */
+const DEMO_GLOSSES = ['HELLO','ME','YOU','MY','NAME','WHAT','WHERE','NEED','WANT','HELP','NOT','UNDERSTAND','BATHROOM','DOCTOR','WATER','PAIN','HERE','PLEASE','THANK-YOU','YES','NO'];
+function simToken(label, type='word'){ emitToken(label, type, 0.9 + Math.random()*0.08); seg.lastHandT = performance.now(); }
+function simEnd(){ if ($('#chkSimQ').checked) seg.q = true; endPhrase(performance.now()); $('#chkSimQ').checked = false; }
+async function playScript(){
+  const steps = [
+    ['sign', ['HELLO','ME','NEED','HELP']],
+    ['say', 'Of course. What do you need help with?'],
+    ['sign', ['PAIN','HERE']],
+    ['say', 'Okay, I will get a doctor. What is your name?'],
+    ['sign', ['MY','NAME'], 'JO'],
+    ['say', 'Thanks Jo. The doctor will be here in five minutes.'],
+    ['sign', ['THANK-YOU']],
+  ];
+  const run = ++scriptRun;               // each run has an id; stopping bumps it
+  const live = () => run === scriptRun;
+  setScriptButton(true);
+  try {
+    for (const [kind, data, spell] of steps){
+      if (kind === 'sign'){
+        for (const g of data){ if (!live()) return; simToken(g); await sleep(450); }
+        if (spell) for (const ch of spell){ if (!live()) return; simToken(ch, 'letter'); await sleep(300); }
+        await sleep(500); if (!live()) return; endPhrase(performance.now());
+      } else { if (!live()) return; addMessage({ from:'speaker', via:'typed', text:data }); }
+      await sleep(1600);
+    }
+  } finally { if (live()){ scriptRun++; setScriptButton(false); } }
+}
+let scriptRun = 0;
+function stopScript(){
+  scriptRun++;
+  seg.phrase = []; seg.q = false; $('#chipQ').hidden = true; renderPhrase();
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  setScriptButton(false);
+  toast('Sample conversation stopped');
+}
+function setScriptButton(playing){
+  const b = $('#btnScript');
+  b.dataset.playing = playing ? '1' : '';
+  b.textContent = playing ? '■ Stop sample' : '▶ Play sample conversation';
+  b.classList.toggle('primary', playing);
+  b.setAttribute('aria-label', playing ? 'Stop sample conversation' : 'Play sample conversation');
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------------- Wire up UI ---------------- */
+function applySettingsUI(){
+  document.documentElement.style.setProperty('--fs', settings.fontSize + 'px');
+  document.documentElement.classList.toggle('hc', settings.contrast);
+  $('#rngFs').value = settings.fontSize; $('#fsOut').textContent = settings.fontSize + ' px';
+  $('#chkHC').checked = settings.contrast; $('#chkAutoSpeak').checked = settings.autoSpeak;
+  $('#rngThr').value = settings.threshold; $('#thrOut').textContent = Math.round(settings.threshold*100) + '%';
+  $('#thrTxt').textContent = `Threshold ${Math.round(settings.threshold*100)}%`; $('#confThr').style.left = (settings.threshold*100) + '%';
+  $('#rngPause').value = settings.pauseMs; $('#pauseOut').textContent = (settings.pauseMs/1000).toFixed(1) + ' s';
+  $('#pauseHint').textContent = `Auto-send after ${(settings.pauseMs/1000).toFixed(1)} s with hands down`;
+  $('#rngHold').value = settings.holdFrames; $('#holdOut').textContent = `${settings.holdFrames} frames (~${Math.round(settings.holdFrames/30*1000)} ms)`;
+  $('#rngSens').value = settings.sensitivity; $('#sensOut').textContent = settings.sensitivity.toFixed(2) + '×';
+  $('#rngRate').value = settings.rate; $('#rateOut').textContent = settings.rate.toFixed(2) + '×';
+  $('#selLang').value = settings.lang; $('#selRes').value = settings.res;
+  $('#chkFaceBody').checked = settings.faceBody; $('#chkAlphabet').checked = settings.alphabet;
+  $('#btnDebug').setAttribute('aria-pressed', settings.debug); $('#debug').classList.toggle('show', settings.debug);
+}
+function bindRange(id, key, parse=Number){ $(id).addEventListener('input', e => { settings[key] = parse(e.target.value); saveSettings(); applySettingsUI(); }); }
+bindRange('#rngFs','fontSize'); bindRange('#rngThr','threshold'); bindRange('#rngPause','pauseMs'); bindRange('#rngHold','holdFrames'); bindRange('#rngSens','sensitivity'); bindRange('#rngRate','rate');
+$('#chkHC').onchange = e => { settings.contrast = e.target.checked; saveSettings(); applySettingsUI(); };
+$('#chkAutoSpeak').onchange = e => { settings.autoSpeak = e.target.checked; saveSettings(); };
+$('#chkAlphabet').onchange = e => { settings.alphabet = e.target.checked; saveSettings(); };
+$('#chkFaceBody').onchange = e => { settings.faceBody = e.target.checked; saveSettings(); if (settings.faceBody) loadFaceBody(); };
+$('#selVoice').onchange = e => { settings.voice = e.target.value; saveSettings(); };
+$('#selLang').onchange = e => { settings.lang = e.target.value; saveSettings(); if (listening){ stopListening(); startListening(); } };
+$('#selRes').onchange = e => { settings.res = e.target.value; saveSettings(); if (stream){ if (settings.res==='auto'){ autoRes = pickAutoRes(); applyResolution(autoRes); } else applyResolution(settings.res); } };
+$('#btnDebug').onclick = () => { settings.debug = !settings.debug; saveSettings(); applySettingsUI(); };
+
+$('#btnStart').onclick = () => begin('camera');
+$('#btnFile').onclick = () => $('#fileVideo').click();
+$('#fileVideo').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  stopStream(); video.srcObject = null; video.src = URL.createObjectURL(f); video.loop = true;
+  mirror = false; $('#stage').classList.remove('mirror');
+  try { await video.play(); } catch{}
+  begin('file');
+};
+$('#btnModels').onclick = () => $('#fileModels').click();
+$('#fileModels').onchange = async e => {
+  const got = [];
+  for (const f of e.target.files){
+    const n = f.name.toLowerCase();
+    const key = n.includes('hand') ? 'hand' : n.includes('face') ? 'face' : n.includes('pose') ? 'pose' : null;
+    if (!key) continue;
+    localModels[key] = new Uint8Array(await f.arrayBuffer()); got.push(key);
+  }
+  e.target.value = '';
+  if (!got.length){ setStartErr('Those files don’t look like MediaPipe models — pick hand_landmarker.task (and optionally face_landmarker.task, pose_landmarker_lite.task).'); return; }
+  setStartMsg(`Loaded ${got.join(', ')} model${got.length>1?'s':''} from disk.${localModels.hand ? ' Click Start camera.' : ' hand_landmarker.task is still needed.'}`);
+};
+$('#btnStop').onclick = stopAll;
+$('#btnFlip').onclick = async () => { facing = facing==='user' ? 'environment' : 'user'; try { await startCamera(); toast(facing==='user' ? 'Front camera' : 'Rear camera'); } catch(e){ toast('Could not switch camera'); facing = facing==='user' ? 'environment' : 'user'; } };
+
+$('#btnUndo').onclick = () => { seg.phrase.pop(); renderPhrase(); };
+$('#btnClearPhrase').onclick = () => { seg.phrase = []; seg.q = false; $('#chipQ').hidden = true; renderPhrase(); };
+$('#btnSendPhrase').onclick = () => endPhrase(performance.now());
+
+document.querySelectorAll('[role=tab]').forEach(tab => tab.onclick = () => {
+  document.querySelectorAll('[role=tab]').forEach(t => { t.setAttribute('aria-selected', t===tab); $('#'+t.getAttribute('aria-controls')).hidden = t!==tab; });
+});
+$('#btnRecord').onclick = startRecording;
+$('#btnCalib').onclick = () => runCalibration(CAL_LETTERS);
+$('#btnCalibFist').onclick = () => runCalibration(FIST_LETTERS);
+$('#btnTest').onclick = runAccuracyTest;
+$('#btnStopRun').onclick = () => { if (wizard) wizard.stopped = true; };
+$('#btnExport').onclick = () => {
+  const blob = new Blob([JSON.stringify({ version:1, signs:taught }, null, 0)], { type:'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'taught-signs.json'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+};
+$('#btnImport').onclick = () => $('#fileImport').click();
+$('#fileImport').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { const j = JSON.parse(await f.text()); const s = Array.isArray(j) ? j : j.signs; if (!Array.isArray(s)) throw 0; taught = taught.concat(s.filter(x => x.label && x.vec)); saveSigns(); renderTaught(); toast(`Imported ${s.length} samples`); }
+  catch { toast('That file is not a signs export'); }
+  e.target.value = '';
+};
+$('#btnClearSigns').onclick = () => { if (!taught.length) return; const b = $('#btnClearSigns'); if (b.dataset.confirm){ taught = []; saveSigns(); renderTaught(); b.textContent = 'Delete all'; delete b.dataset.confirm; } else { b.dataset.confirm = 1; b.textContent = 'Click again to confirm'; setTimeout(()=>{ b.textContent='Delete all'; delete b.dataset.confirm; }, 3000); } };
+
+const gb = $('#glossBtns');
+DEMO_GLOSSES.forEach(g => { const b = document.createElement('button'); b.textContent = g; b.onclick = () => simToken(g); gb.appendChild(b); });
+$('#btnSpell').onclick = () => { const w = $('#spellInput').value.toUpperCase().replace(/[^A-Z]/g,''); [...w].forEach(ch => simToken(ch, 'letter')); $('#spellInput').value = ''; };
+$('#spellInput').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); $('#btnSpell').click(); } });
+$('#btnSimEnd').onclick = simEnd;
+$('#btnScript').onclick = () => $('#btnScript').dataset.playing ? stopScript() : playScript();
+
+$('#composer').addEventListener('submit', e => { e.preventDefault(); const v = $('#txtMsg').value.trim(); if (!v) return; addMessage({ from:'speaker', via:'typed', text:v }); $('#txtMsg').value = ''; });
+$('#btnMic').onclick = () => listening ? stopListening() : startListening();
+$('#btnClearThread').onclick = () => { messages.length = 0; thread.innerHTML = '<div class="empty" id="empty">Signed messages appear on the left, spoken or typed replies on the right.</div>'; $('#capText').textContent = '—'; };
+
+$('#btnReq').onclick = () => { $('#reqModal').classList.add('show'); $('#btnReqClose').focus(); };
+$('#btnReqClose').onclick = () => $('#reqModal').classList.remove('show');
+$('#reqModal').addEventListener('click', e => { if (e.target.id === 'reqModal') $('#reqModal').classList.remove('show'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#reqModal').classList.remove('show'); });
+
+if (inFrame) setStartMsg('Running inside an embedded preview? Those block the camera and downloads — open the .html file directly in Chrome or Edge.');
+if (!SR){ $('#micStatus').textContent = 'Speech recognition needs Chrome/Edge — typing works everywhere'; }
+if ('speechSynthesis' in window){ loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+applySettingsUI(); renderTaught(); renderReqs(); renderPhrase();
+
+// Test hooks (used for automated checks; harmless in normal use)
+window.__slt = { letterVec, knn, classifyStatic, BUILTIN_LETTERS, glossToEnglish, englishToGloss, classifyAlphabet, normalizeHand, processHand, seg, settings, messages, get taught(){ return taught; }, set taught(v){ taught = v; } };
+</script>
+</body>
+</html>
